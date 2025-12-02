@@ -475,12 +475,12 @@ class Bcm300(SihasEntity, ClimateEntity):
             _LOGGER.warning("BCM opmode is not initialized yet; ignoring set_temperature")
             return
             
-    # 1) 외출 모드(fan_only)에서는 온수 온도 조절
+        # 1) 외출 모드(fan_only)에서는 온수 온도 조절
         if self._attr_hvac_mode == HVACMode.FAN_ONLY:
             self.command(BCM_REG_ONSUSETPT, math.floor(tmp))
             return
 
-    # 2) 그 외 모드에서는 난방 온도(Room / Ondol) 조절
+        # 2) 그 외 모드에서는 난방 온도(Room / Ondol) 조절
         target_reg = (
             BCM_REG_ROOMSETPT
             if (self.opmode.heatMode == BcmHeatMode.Room)
@@ -498,8 +498,8 @@ class Bcm300(SihasEntity, ClimateEntity):
             setpt: Optional[int] = None  # set point
             curpt: Optional[int] = None  # current point
 
-            if self.opmode.isOnsuOn and self._attr_hvac_mode == HVACMode.AUTO:
-                # 온수 전용 모드일 때 UI 표시용 값
+            # 외출(FAN_ONLY) 모드에서는 온수 온도 기준으로 표시
+            if self._attr_hvac_mode == HVACMode.FAN_ONLY:
                 setpt = regs[BCM_REG_ONSUSETPT]
                 curpt = regs[BCM_REG_ONSUTEMP]
             elif self.opmode.heatMode == BcmHeatMode.Room:
@@ -511,9 +511,9 @@ class Bcm300(SihasEntity, ClimateEntity):
     
             self._attr_current_temperature = curpt
             self._attr_target_temperature = setpt
-            
-            # 🔍 디버깅용: 일부 레지스터를 attributes로 노출
-            self._attr_extra_state_attributes = {
+    
+            # 🔍 디버깅용 레지스터 스냅샷 저장
+            self._bcm_debug_regs = {
                 "bcm_onoff": regs[BCM_REG_ONOFF],
                 "bcm_outmode": regs[BCM_REG_OUTMODE],
                 "bcm_timermode": regs[BCM_REG_TIMERMODE],
@@ -557,7 +557,20 @@ class Bcm300(SihasEntity, ClimateEntity):
             (reg & (1 << 1)) != 0,
             BcmHeatMode.Ondol if (reg & (1 << 2)) != 0 else BcmHeatMode.Room,
         )
+    @property
+    def extra_state_attributes(self) -> dict:
+        """기본 속성 + BCM 디버그 레지스터를 함께 노출."""
+        # 부모(SihasEntity 등)가 주는 기본 attributes 가져오기
+        base = {}
+        try:
+            base = super().extra_state_attributes or {}
+        except AttributeError:
+            base = {}
 
+        debug = getattr(self, "_bcm_debug_regs", None)
+        if debug:
+            return {**base, **debug}
+        return base
 
 # Register index
 class TcmRegister(IntEnum):
