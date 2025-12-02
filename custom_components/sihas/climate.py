@@ -511,7 +511,18 @@ class Bcm300(SihasEntity, ClimateEntity):
     
             self._attr_current_temperature = curpt
             self._attr_target_temperature = setpt
-
+            
+            # 🔍 디버깅용: 일부 레지스터를 attributes로 노출
+            self._attr_extra_state_attributes = {
+                "bcm_onoff": regs[BCM_REG_ONOFF],
+                "bcm_outmode": regs[BCM_REG_OUTMODE],
+                "bcm_timermode": regs[BCM_REG_TIMERMODE],
+                "bcm_opermode_raw": regs[BCM_REG_OPERMODE],
+                "bcm_onsu_on": self.opmode.isOnsuOn,
+                "bcm_heat_on": self.opmode.isHeatOn,
+                "bcm_heat_mode": self.opmode.heatMode.name,
+            }
+            
     def _resolve_hvac_mode(self, regs):
         if regs[BCM_REG_ONOFF] == 0:
             return HVACMode.OFF
