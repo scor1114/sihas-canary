@@ -469,11 +469,24 @@ class Bcm300(SihasEntity, ClimateEntity):
     def set_temperature(self, **kwargs):
         tmp = cast(float, kwargs.get(ATTR_TEMPERATURE))
 
-        assert self.opmode != None
-        self.command(
-            BCM_REG_ROOMSETPT if (self.opmode.heatMode == BcmHeatMode.Room) else BCM_REG_ONDOLSETPT,
-            math.floor(tmp),
-        )
+        assert self.opmode is not None
+        if self.opmode.isOnsuOn:
+            # 온수 모드일 때: 온수 설정 온도 레지스터로 전송
+            self.command(BCM_REG_ONSUSETPT, math.floor(tmp))
+        else:
+            # 그 외(난방 등): 기존 로직 유지
+            target_reg = (
+                BCM_REG_ROOMSETPT
+                if (self.opmode.heatMode == BcmHeatMode.Room)
+                else BCM_REG_ONDOLSETPT
+            )
+            self.command(target_reg, math.floor(tmp))
+
+        #assert self.opmode != None
+        #self.command(
+        #    BCM_REG_ROOMSETPT if (self.opmode.heatMode == BcmHeatMode.Room) else BCM_REG_ONDOLSETPT,
+        #    math.floor(tmp),
+        #)
 
     def update(self):
         if regs := self.poll():
