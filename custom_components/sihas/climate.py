@@ -482,12 +482,6 @@ class Bcm300(SihasEntity, ClimateEntity):
             )
             self.command(target_reg, math.floor(tmp))
 
-        #assert self.opmode != None
-        #self.command(
-        #    BCM_REG_ROOMSETPT if (self.opmode.heatMode == BcmHeatMode.Room) else BCM_REG_ONDOLSETPT,
-        #    math.floor(tmp),
-        #)
-
     def update(self):
         if regs := self.poll():
             self.opmode = self._parse_oper_mode(regs)
@@ -498,13 +492,17 @@ class Bcm300(SihasEntity, ClimateEntity):
             setpt: Optional[int] = None  # set point
             curpt: Optional[int] = None  # current point
 
-            if self.opmode.heatMode == BcmHeatMode.Room:
+            if self.opmode.isOnsuOn and self._attr_hvac_mode == HVACMode.AUTO:
+                # 온수 전용 모드일 때 UI 표시용 값
+                setpt = regs[BCM_REG_ONSUSETPT]
+                curpt = regs[BCM_REG_ONSUTEMP]
+            elif self.opmode.heatMode == BcmHeatMode.Room:
                 setpt = regs[BCM_REG_ROOMSETPT]
                 curpt = math.floor(regs[BCM_REG_ROOMTEMP] / 10)
             else:
                 setpt = regs[BCM_REG_ONDOLSETPT]
                 curpt = regs[BCM_REG_ONDOLTEMP]
-
+    
             self._attr_current_temperature = curpt
             self._attr_target_temperature = setpt
 
