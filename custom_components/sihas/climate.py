@@ -448,23 +448,39 @@ class Bcm300(SihasEntity, ClimateEntity):
             config=config,
             name=name,
         )
-
         self.opmode: Optional[BcmOpMode] = None
 
     def set_hvac_mode(self, hvac_mode: str):
         if hvac_mode == HVACMode.FAN_ONLY:
-            # 외출 모드: 예약 끄고, 외출 모드 ON
+            # 외출 모드: 온수만 ON, 난방 OFF
+            if self.opmode is not None:
+                # heat_mode 비트는 유지, heat_on 비트만 0으로
+                new_reg = 0
+                # 온수는 항상 ON (bit0)
+                new_reg |= 1
+                # heat_mode(Ondol/Room)는 그대로 유지 (bit2)
+                if self.opmode.heatMode == BcmHeatMode.Ondol:
+                    new_reg |= (1 << 2)
+            else:
+                # opmode를 아직 모르는 경우: 일단 온수만 ON, 난방 OFF, Room 모드 가정
+                new_reg = 1
+
+            self.command(BCM_REG_OPERMODE, new_reg)
             self.command(BCM_REG_TIMERMODE, 0)
             self.command(BCM_REG_OUTMODE, 1)
             self.command(BCM_REG_ONOFF, 1)
+            return
+
         elif hvac_mode == HVACMode.HEAT:
             self.command(BCM_REG_OUTMODE, 0)
             self.command(BCM_REG_ONOFF, 1)
             self.command(BCM_REG_TIMERMODE, 1)
+
         elif hvac_mode == HVACMode.AUTO:
             self.command(BCM_REG_OUTMODE, 0)
             self.command(BCM_REG_ONOFF, 1)
             self.command(BCM_REG_TIMERMODE, 0)
+
         elif hvac_mode == HVACMode.OFF:
             self.command(BCM_REG_ONOFF, 0)
 
@@ -474,7 +490,7 @@ class Bcm300(SihasEntity, ClimateEntity):
         if self.opmode is None:
             _LOGGER.warning("BCM opmode is not initialized yet; ignoring set_temperature")
             return
-            
+
         # 1) 외출 모드(fan_only)에서는 온수 온도 조절
         if self._attr_hvac_mode == HVACMode.FAN_ONLY:
             self.command(BCM_REG_ONSUSETPT, math.floor(tmp))
@@ -495,8 +511,8 @@ class Bcm300(SihasEntity, ClimateEntity):
             self._attr_hvac_mode = self._resolve_hvac_mode(regs)
             self._attr_hvac_action = self._resolve_hvac_action(regs)
 
-            setpt: Optional[int] = None  # set point
-            curpt: Optional[int] = None  # current point
+            setpt: Optional[int] = None
+            curpt: Optional[int] = None
 
             # 외출(FAN_ONLY) 모드에서는 온수 온도 기준으로 표시
             if self._attr_hvac_mode == HVACMode.FAN_ONLY:
@@ -508,11 +524,11 @@ class Bcm300(SihasEntity, ClimateEntity):
             else:
                 setpt = regs[BCM_REG_ONDOLSETPT]
                 curpt = regs[BCM_REG_ONDOLTEMP]
-    
+
             self._attr_current_temperature = curpt
             self._attr_target_temperature = setpt
-    
-            # 🔍 디버깅용 레지스터 스냅샷 저장
+
+            # 디버깅용 레지스터 스냅샷
             self._bcm_debug_regs = {
                 "bcm_onoff": regs[BCM_REG_ONOFF],
                 "bcm_outmode": regs[BCM_REG_OUTMODE],
@@ -522,7 +538,7 @@ class Bcm300(SihasEntity, ClimateEntity):
                 "bcm_heat_on": self.opmode.isHeatOn,
                 "bcm_heat_mode": self.opmode.heatMode.name,
             }
-            
+
     def _resolve_hvac_mode(self, regs):
         if regs[BCM_REG_ONOFF] == 0:
             return HVACMode.OFF
@@ -536,31 +552,21 @@ class Bcm300(SihasEntity, ClimateEntity):
     def _resolve_hvac_action(self, regs):
         if regs[BCM_REG_ONOFF] == 0:
             return HVACAction.OFF
-        # elif regs[BCM_REG_OUTMODE] == 1:
-        #     return HVACAction.FAN
         elif regs[BCM_REG_FIRE_STATE] == 0:
             return HVACAction.IDLE
         else:
             return HVACAction.HEATING
 
     def _parse_oper_mode(self, regs: List[int]) -> BcmOpMode:
-        r"""보일러 운전모드 파싱
-        regs[_BCMOPERMODE] = 0b_0000_0000
-                                       \\\_온수 ON/OFF Flag
-                                        \\_난방 ON/OFF Flag
-                                         \_난방 모드 Flag [0=실내, 1=온돌]
-        """
         reg = regs[BCM_REG_OPERMODE]
-
         return BcmOpMode(
             (reg & 1) != 0,
             (reg & (1 << 1)) != 0,
             BcmHeatMode.Ondol if (reg & (1 << 2)) != 0 else BcmHeatMode.Room,
         )
+
     @property
     def extra_state_attributes(self) -> dict:
-        """기본 속성 + BCM 디버그 레지스터를 함께 노출."""
-        # 부모(SihasEntity 등)가 주는 기본 attributes 가져오기
         base = {}
         try:
             base = super().extra_state_attributes or {}
@@ -571,7 +577,7 @@ class Bcm300(SihasEntity, ClimateEntity):
         if debug:
             return {**base, **debug}
         return base
-
+        
 # Register index
 class TcmRegister(IntEnum):
     POWER = 0
