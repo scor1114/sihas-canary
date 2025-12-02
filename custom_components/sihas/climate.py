@@ -451,38 +451,37 @@ class Bcm300(SihasEntity, ClimateEntity):
         self.opmode: Optional[BcmOpMode] = None
 
     def set_hvac_mode(self, hvac_mode: str):
-        if hvac_mode == HVACMode.FAN_ONLY:
-            # 외출 모드: 온수만 ON, 난방 OFF
-            if self.opmode is not None:
-                # heat_mode 비트는 유지, heat_on 비트만 0으로
-                new_reg = 0
-                # 온수는 항상 ON (bit0)
-                new_reg |= 1
-                # heat_mode(Ondol/Room)는 그대로 유지 (bit2)
-                if self.opmode.heatMode == BcmHeatMode.Ondol:
-                    new_reg |= (1 << 2)
-            else:
-                # opmode를 아직 모르는 경우: 일단 온수만 ON, 난방 OFF, Room 모드 가정
-                new_reg = 1
+        """HA hvac_mode ↔ BCM 레지스터 매핑
 
-            self.command(BCM_REG_OPERMODE, new_reg)
-            self.command(BCM_REG_TIMERMODE, 0)
+        - AUTO : 재실 + 예약 없음
+        - HEAT : 재실 + 예약 실행
+        - FAN_ONLY : 외출 플래그만 ON (폰 앱의 '외출'과 동일하게 OUTMODE만 변경)
+        - OFF : 보일러 전원 OFF
+        """
+
+        if hvac_mode == HVACMode.FAN_ONLY:
+            # 👉 폰 앱처럼: OUTMODE 플래그만 건드린다.
             self.command(BCM_REG_OUTMODE, 1)
-            self.command(BCM_REG_ONOFF, 1)
             return
 
-        elif hvac_mode == HVACMode.HEAT:
-            self.command(BCM_REG_OUTMODE, 0)
-            self.command(BCM_REG_ONOFF, 1)
-            self.command(BCM_REG_TIMERMODE, 1)
+        if hvac_mode == HVACMode.HEAT:
+            # 재실 + 예약 실행
+            self.command(BCM_REG_OUTMODE, 0)   # 재실
+            self.command(BCM_REG_TIMERMODE, 1) # 예약 실행
+            self.command(BCM_REG_ONOFF, 1)     # 보일러 ON
+            return
 
-        elif hvac_mode == HVACMode.AUTO:
-            self.command(BCM_REG_OUTMODE, 0)
-            self.command(BCM_REG_ONOFF, 1)
-            self.command(BCM_REG_TIMERMODE, 0)
+        if hvac_mode == HVACMode.AUTO:
+            # 재실 + 예약 없음
+            self.command(BCM_REG_OUTMODE, 0)   # 재실
+            self.command(BCM_REG_TIMERMODE, 0) # 예약 없음
+            self.command(BCM_REG_ONOFF, 1)     # 보일러 ON
+            return
 
-        elif hvac_mode == HVACMode.OFF:
+        if hvac_mode == HVACMode.OFF:
+            # 보일러 전원만 OFF (외출/예약 플래그는 건드리지 않음)
             self.command(BCM_REG_ONOFF, 0)
+            return
 
     def set_temperature(self, **kwargs):
         tmp = cast(float, kwargs.get(ATTR_TEMPERATURE))
