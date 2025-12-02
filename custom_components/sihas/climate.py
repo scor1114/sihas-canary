@@ -453,6 +453,8 @@ class Bcm300(SihasEntity, ClimateEntity):
 
     def set_hvac_mode(self, hvac_mode: str):
         if hvac_mode == HVACMode.FAN_ONLY:
+            # 외출 모드: 예약 끄고, 외출 모드 ON
+            self.command(BCM_REG_TIMERMODE, 0)
             self.command(BCM_REG_OUTMODE, 1)
             self.command(BCM_REG_ONOFF, 1)
         elif hvac_mode == HVACMode.HEAT:
@@ -469,18 +471,22 @@ class Bcm300(SihasEntity, ClimateEntity):
     def set_temperature(self, **kwargs):
         tmp = cast(float, kwargs.get(ATTR_TEMPERATURE))
 
-        assert self.opmode is not None
-        if self.opmode.isOnsuOn:
-            # 온수 모드일 때: 온수 설정 온도 레지스터로 전송
+        if self.opmode is None:
+            _LOGGER.warning("BCM opmode is not initialized yet; ignoring set_temperature")
+            return
+            
+    # 1) 외출 모드(fan_only)에서는 온수 온도 조절
+        if self._attr_hvac_mode == HVACMode.FAN_ONLY:
             self.command(BCM_REG_ONSUSETPT, math.floor(tmp))
-        else:
-            # 그 외(난방 등): 기존 로직 유지
-            target_reg = (
-                BCM_REG_ROOMSETPT
-                if (self.opmode.heatMode == BcmHeatMode.Room)
-                else BCM_REG_ONDOLSETPT
-            )
-            self.command(target_reg, math.floor(tmp))
+            return
+
+    # 2) 그 외 모드에서는 난방 온도(Room / Ondol) 조절
+        target_reg = (
+            BCM_REG_ROOMSETPT
+            if (self.opmode.heatMode == BcmHeatMode.Room)
+            else BCM_REG_ONDOLSETPT
+        )
+        self.command(target_reg, math.floor(tmp))
 
     def update(self):
         if regs := self.poll():
